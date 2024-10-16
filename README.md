@@ -65,6 +65,19 @@ Before
 
 After
 
+## Webserver
+
+I have also included a python webserver as well as a webserver application. Both of these files wait for a connection and dumps the files to a CSV file for logging purposes.
+
+### Python
+
+Make a python webserver
+
+### Windows executable
+
+Make a C project for Windows.
+
+
 ## 3D printed enclosure
 
 Not completed yet.

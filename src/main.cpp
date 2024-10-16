@@ -1,41 +1,67 @@
 /*
-      SmartTemp Client or Server
-      Mdify the wifi_config header file (include/wifi_config.h)
-*/
-//Uncomment out whether you want a HTTP server or client or both.
-//#define HTTPSERVER
-#define HTTPCLIENT
+SmartTemp Client and/or Server
+--------------------------------
+This code allows you to configure an ESP device to act as either an HTTP server, 
+an HTTP client, or both. Before using this code, make sure to modify the 
+wifi_config header file located at: include/wifi_config.h
 
-//Uncomment out if the deesleep jumper has been installed. If Uncommented out, and the jumper is not installed, the ESP will fail to wake up!
+Uncomment the necessary lines to enable the desired functionality.
+*/
+
+#define HTTPSERVER      // Uncomment to enable HTTP Server
+#define HTTPCLIENT      // Uncomment to enable HTTP Client
+
+/*
+Network Configuration:
+---------------------
+If an HTTP client is enabled, set the server endpoint below. 
+Example: 192.168.1.2. Ensure the server software is running to receive communications.
+*/
+const char* server_ip = "192.168.1.177"; // Replace with your server IP.
+const int server_port = 80;               // Replace with your server port.
+const int local_server_port = 80;         // This is the port of the ESP Server.
+
+/*
+Post Frequency:
+---------------
+How frequently the POST request should be made if CLIENT is enabled.
+*/
+#define POSTFrequency 10
+
+/*
+Sensor Configuration:
+---------------------
+Uncomment the line corresponding to the sensor being used:
+*/
+//#define Sensor_DHT11   // Uncomment for DHT11 sensor
+#define Sensor_DHT22   // Uncomment for DHT22 sensor
+#define DHTPIN 2     // Digital pin connected to the DHT sensor 
+/*
+Debugging:
+-----------
+Uncomment to enable serial debugging messages.
+*/
+#define SERIALDEBUG    // Uncomment to enable serial debugging output
+
+/*
+Deep Sleep Configuration:
+-------------------------
+Uncomment the following line if the deep sleep jumper is installed. 
+Note: If uncommented and the jumper is not installed, the ESP will fail to wake up!
+*/
+
 //#define ESPDEEPSLEEP
 
-//If a HTTPCLient is enabled, this must contain your endpoint. eg http://192.168.1.2. THe server software must also be running to receive this communication.
-const char* serverURL = "http://your-server.com/post-endpoint";  // Replace with your server URL
-
-//Uncomment out whether a DHT22 or DHT11 is being used.
-//#define Sensor_DHT11
-#define Sensor_DHT22
-
-//Comment out to prevent the ESP sending debug messages via Serial.
-#define SERIALDEBUG
-
-
-// If client, this needs to be updated.
-
-
+//Imported libraries.
 #include <Arduino.h>
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
 #include <wifi_config.h>
-
 #ifdef HTTPCLIENT
   #include <ESP8266HTTPClient.h>
 #endif
-
-#include <ESP8266WiFi.h> //is this right?
-
-
+#include <ESP8266WiFi.h>
 #ifdef Sensor_DHT11
   #define DHTTYPE    DHT11     // DHT 11
 #endif
@@ -43,33 +69,33 @@ const char* serverURL = "http://your-server.com/post-endpoint";  // Replace with
   #define DHTTYPE    DHT22     // DHT 22
 #endif
 
-#define DHTPIN 2     // Digital pin connected to the DHT sensor 
+
+
+//On board LED pin (Not used)
+const int led = 16;
 
 // DHT variables
 DHT_Unified dht(DHTPIN, DHTTYPE);
 uint32_t delayMS;
 
-
-WiFiServer server(80);
-
+#ifdef HTTPSERVER
+WiFiServer server(local_server_port);
+#endif
 //sometimes we dont need this.
 unsigned long previousMillis = 0;
 
-unsigned int clientPOSTFrequency = 10; // In Seconds
+unsigned int clientPOSTFrequency = POSTFrequency; // In Seconds
 
 void setup() {
-  Serial.begin(115200);
 
-
-//initalise the webserver
-
-// Connect to WiFi network
 #ifdef SERIALDEBUG
+  Serial.begin(115200);
   Serial.println();
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
 #endif
+
   WiFi.begin(ssid, password);
    
   while (WiFi.status() != WL_CONNECTED) {
@@ -117,20 +143,15 @@ void setup() {
   server.begin();
   #ifdef SERIALDEBUG
   Serial.println("Server started");
- 
   // Print the IP address
   Serial.print("Use this URL to connect: ");
   Serial.print("http://");
   Serial.print(WiFi.localIP());
   Serial.println("/");
   #endif
-    
-
-  
 #endif
-
 #ifdef HTTPCLIENT
-  sendPOSTRequest();
+  void sendPOSTRequest();
   #ifndef HTTPSERVER
   //If ONLY a client is set, we deep sleep. Otherwise, we continue hosting the server.
     #ifdef ESPDEEPSLEEP
@@ -140,29 +161,31 @@ void setup() {
 #endif
 }
 
+#ifdef HTTPCLIENT
 void sendPOSTRequest() // Do not need to wrap an ifdef arond this, as the compilers optimiser will remove it.
 {
- // Get the latest readings
+ // Get the latest readings.
   sensors_event_t tempEvent, humidEvent;
   dht.temperature().getEvent(&tempEvent);
   dht.humidity().getEvent(&humidEvent);
             
-  // Check if the readings are valid
+  // Check if the readings are valid.
   float temperature = tempEvent.temperature;
   float humidity = humidEvent.relative_humidity;
   String postData = "temperature=" + String(temperature) + "&humidity=" + String(humidity);
 
-  // Make HTTP POST request
+  // Make HTTP POST request.
   if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client; // Create a WiFiClient object.
     HTTPClient http;
-    
-    http.begin(serverURL);  // Specify the URL
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");  // Specify the content type
+    http.setTimeout(5000); // Set timeout to 5 seconds.
+    http.begin(client,server_ip,server_port);  // Specify the URL.
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");  // Specify the content type.
 
-    // Send POST request
+    // Send POST request.
     int httpResponseCode = http.POST(postData);
 #ifdef SERIALDEBUG
-    // Check the response
+    // Check the response.
     if (httpResponseCode > 0) {
       String response = http.getString();
       Serial.print("Response Code: ");
@@ -173,13 +196,15 @@ void sendPOSTRequest() // Do not need to wrap an ifdef arond this, as the compil
       Serial.println(httpResponseCode);
     }
 #endif
-    http.end();  // Close connection
+    http.end();  // Close connection.
   }
 }
+#endif
+
 void loop() {
-//Only when we are running the server do we need to use the loop() function.
-#ifdef HTTPSERVER
-  // Listen for incoming clients
+  // Only when we are running the server do we need to use the loop() function or we are a client without ESPdeepsleep.
+  #ifdef HTTPSERVER
+  // Listen for incoming clients.
   WiFiClient client = server.available();   
   if (client) {                             
     Serial.println("New Client.");          
@@ -189,34 +214,37 @@ void loop() {
         char c = client.read();             
         Serial.write(c);                    
         if (c == '\n') {                    
-          // If the line is blank, you got two newlines in a row.
-          // That’s the end of the client HTTP request, so you can send a response
+          // End of client HTTP request.
           if (currentLine.length() == 0) {
-            // HTTP headers
+            // HTTP headers.
             client.println("HTTP/1.1 200 OK");
             client.println("Content-type:text/html");
-            client.println();
-
-            // Get the latest readings
+            
+            // Get the latest readings.
             sensors_event_t tempEvent, humidEvent;
             dht.temperature().getEvent(&tempEvent);
             dht.humidity().getEvent(&humidEvent);
             
-            // Check if the readings are valid
+            // Check if the readings are valid.
             float temperature = tempEvent.temperature;
             float humidity = humidEvent.relative_humidity;
             
+            // Prepare the response body.
+            String responseBody;
             if (isnan(temperature) || isnan(humidity)) {
-              client.println("<h1>Error reading from DHT sensor</h1>");
+              responseBody = "<h1>Error reading from DHT sensor</h1>";
             } else {
-              // Send the HTML content
-              client.println("<h1>DHT11 Sensor Data</h1>");
-              client.println("<p>Temperature: " + String(temperature) + " &deg;C</p>");
-              client.println("<p>Humidity: " + String(humidity) + " %</p>");
+              responseBody = "<h1>DHT11 Sensor Data</h1>"
+                             "<p>Temperature: " + String(temperature) + " &deg;C</p>"
+                             "<p>Humidity: " + String(humidity) + " %</p>";
             }
 
-            // The HTTP response ends with another blank line
+            // Send Content-Length header.
+            client.println("Content-Length: " + String(responseBody.length()));
             client.println();
+            client.println(responseBody);
+            
+            // End of the HTTP response.
             break;
           } else {
             currentLine = "";
@@ -226,28 +254,25 @@ void loop() {
         }
       }
     }
-    // Close the connection
+    // Close the connection.
     client.stop();
     #ifdef SERIALDEBUG
     Serial.println("Client Disconnected.");
     #endif
   }
 
-  // Add a delay between each client response to avoid overwhelming the server
+  // Add a delay between each client response to avoid overwhelming the server.
   delay(100);
-#endif
+  #endif
 
-#ifdef HTTPCLIENT
-unsigned long currentMillis = millis();
+  #ifdef HTTPCLIENT
+  unsigned long currentMillis = millis();
 
-  // Check if 10 seconds have passed
+  // Check if 10 seconds have passed.
   if (currentMillis - previousMillis >= clientPOSTFrequency * 1000) {
-    previousMillis = currentMillis;  // Update the last time
-    //post now.
+    previousMillis = currentMillis;  // Update the last time.
+    // Post now
     sendPOSTRequest();
- 
-
   }
-#endif
-
+  #endif
 }
